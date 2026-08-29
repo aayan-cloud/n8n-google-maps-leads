@@ -1,0 +1,1013 @@
+{
+  "id": "mapsLeadEngine",
+  "name": "Google Maps → No-Website Leads",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "2f603743-b424-4e94-8c02-0cf9390ef64e",
+      "name": "Run Now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "cb8c69df-f3bc-4dff-8d8b-a8fe51386618",
+      "name": "Run Weekly",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -460,
+        180
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "m1",
+              "name": "niche",
+              "value": "dog groomer, mobile car valeting",
+              "type": "string"
+            },
+            {
+              "id": "m2",
+              "name": "city",
+              "value": "Leeds, Manchester",
+              "type": "string"
+            },
+            {
+              "id": "m3",
+              "name": "countryCode",
+              "value": "GB",
+              "type": "string"
+            },
+            {
+              "id": "m4",
+              "name": "minReviews",
+              "value": 5,
+              "type": "number"
+            },
+            {
+              "id": "m5",
+              "name": "maxPerQuery",
+              "value": 60,
+              "type": "number"
+            },
+            {
+              "id": "m6",
+              "name": "maxPlacesToCheck",
+              "value": 40,
+              "type": "number"
+            },
+            {
+              "id": "m7",
+              "name": "browserlessUrl",
+              "value": "http://localhost:3004",
+              "type": "string"
+            },
+            {
+              "id": "m8",
+              "name": "browserlessToken",
+              "value": "changeme-local-token",
+              "type": "string"
+            },
+            {
+              "id": "m9",
+              "name": "waitMs",
+              "value": 2000,
+              "type": "number"
+            },
+            {
+              "id": "m10",
+              "name": "placeWaitMs",
+              "value": 1200,
+              "type": "number"
+            },
+            {
+              "id": "m11",
+              "name": "lang",
+              "value": "en",
+              "type": "string"
+            },
+            {
+              "id": "m12",
+              "name": "outputFolder",
+              "value": "/home/node/.n8n-files/maps-leads",
+              "type": "string"
+            },
+            {
+              "id": "m13",
+              "name": "ledgerFile",
+              "value": "/home/node/.n8n-files/maps-leads/seen-places.json",
+              "type": "string"
+            },
+            {
+              "id": "m14",
+              "name": "onlyNewLeads",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "71b10dd6-ab37-47cb-88d2-0ee161af36b4",
+      "name": "Settings - Edit These",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -240,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.browserlessUrl.replace(/\\/$/, '') }}/json/version?token={{ $json.browserlessToken }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "bb3a89fe-5cf2-421c-812a-5576e9e80889",
+      "name": "Preflight - Browserless",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -20,
+        60
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Builds the Browserless request, after checking what a first-time user gets wrong.\nconst s = $('Settings - Edit These').first().json;\nconst preflight = $input.first().json || {};\n\nif (!preflight.Browser) {\n  throw new Error(\n    'Browserless did not answer at ' + s.browserlessUrl + '. Start it, then check ' +\n    'browserlessUrl and browserlessToken on the Settings node. Test by opening: ' +\n    String(s.browserlessUrl).replace(/\\/$/, '') + '/json/version?token=YOUR_TOKEN' +\n    (preflight.error && preflight.error.message ? ' | ' + String(preflight.error.message).split('\\n')[0].slice(0, 120) : '')\n  );\n}\n\nconst niches = String(s.niche || '').split(',').map(function (n) { return n.trim(); }).filter(Boolean);\nconst cities = String(s.city || '').split(',').map(function (c) { return c.trim(); }).filter(Boolean);\n\nif (!niches.length) throw new Error('Set \"niche\" on the Settings node, e.g. \"interior designer\".');\nif (!cities.length) throw new Error('Set \"city\" on the Settings node, e.g. \"Lahore\". Maps has no country filter, so the city IS the geography. For a whole country, list its cities: \"Lahore, Karachi, Islamabad\".');\n\n// Putting a country name here does not do what it looks like it does. Tested live:\n// \"interior designer Pakistan\" returned 67 businesses, every one of them in Islamabad -\n// Maps quietly recentred on a single city and still capped at ~60 results. Listing the\n// cities is the only way to actually cover a country.\nconst COUNTRIES = ['pakistan','india','bangladesh','united kingdom','uk','england','scotland',\n  'wales','ireland','usa','united states','america','canada','australia','new zealand',\n  'germany','france','spain','italy','netherlands','belgium','portugal','poland','sweden',\n  'norway','denmark','finland','uae','united arab emirates','saudi arabia','qatar','turkey',\n  'egypt','nigeria','kenya','south africa','malaysia','singapore','indonesia','philippines'];\nfor (var ci = 0; ci < cities.length; ci++) {\n  if (COUNTRIES.indexOf(cities[ci].toLowerCase()) !== -1) {\n    throw new Error('\"' + cities[ci] + '\" is a country, not a city. Maps has no country filter: ' +\n      'it would silently recentre on one city and return ~60 results from there. ' +\n      'List the cities instead, comma-separated - e.g. \"Lahore, Karachi, Islamabad\".');\n  }\n}\n\n// Every niche in every city. Each combination is its own search.\nconst queries = [];\nfor (var ni = 0; ni < niches.length; ni++) {\n  for (var cj = 0; cj < cities.length; cj++) {\n    queries.push({ query: niches[ni] + ' ' + cities[cj], city: cities[cj] });\n  }\n}\n\n// Names the CSV. Safe for a filename, and short enough to stay readable.\nconst cityLabel = cities.slice(0, 3).map(function (c) { return c.replace(/[^A-Za-z0-9]+/g, ''); })\n  .join('-') + (cities.length > 3 ? '-plus' + (cities.length - 3) : '');\n\nconst code = \"/**\\n * Scrape Google Maps local results and read whether each business has a website\\n * straight from the result card.\\n *\\n * Runs inside Browserless (/function).\\n *\\n * The list view answers the website question only SOMETIMES. Measured live:\\n *   Leeds / Lahore  cards render an action row - \\\"Visit X's website\\\", \\\"Get directions\\\"\\n *   Phoenix / Dublin cards render name + stars + accessibility and nothing else\\n *\\n * A card with no action row is not a business without a website; it is a card that was\\n * not asked to show one. Treating the two as the same made 41 of 63 Phoenix dentists look\\n * like leads when every one checked had a site. So each business reports a websiteSignal\\n * of 'has' / 'none' / 'unknown', and 'unknown' is resolved on the place page.\\n *\\n * Everything is read from structured aria-labels rather than guessed from card text,\\n * because the text is ambiguous:\\n *   \\\"4.5 stars\\\"          -> rating\\n *   \\\"Visit X's website\\\"  -> they HAVE a website\\n *   \\\"Sponsored\\\"          -> paying for Google Ads, i.e. proven budget\\n *\\n * Review counts are deliberately NOT collected: Maps does not render them in the list\\n * view, and a regex over the card text matched street numbers instead, producing\\n * confident nonsense like \\\"54 reviews\\\" for a business with none.\\n *\\n * context: { queries[], maxPerQuery, waitMs, lang }\\n * returns: { ok, businesses[], perQuery[], notes[] }\\n */\\nexport default async function ({ page, context }) {\\n  const out = { ok: false, step: 'start', businesses: [], perQuery: [], notes: [] };\\n  const wait = (ms) => new Promise((r) => setTimeout(r, ms));\\n\\n  const queries = (context.queries || []).map((q) => String(q).trim()).filter(Boolean);\\n  const maxPer = Number(context.maxPerQuery || 60);\\n  const pacing = Number(context.waitMs || 2500);\\n  const lang = String(context.lang || 'en');\\n\\n  try {\\n    // Headless Chrome announces itself in the UA and Google reacts to that.\\n    await page.setUserAgent(\\n      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36'\\n    );\\n    await page.setViewport({ width: 1500, height: 950 });\\n    await page.setExtraHTTPHeaders({ 'Accept-Language': lang + '-US,' + lang + ';q=0.9' });\\n\\n    const seen = {};\\n\\n    for (const query of queries) {\\n      out.step = 'goto:' + query;\\n      const url = 'https://www.google.com/maps/search/' + encodeURIComponent(query) + '?hl=' + encodeURIComponent(lang);\\n      const resp = await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });\\n      const status = resp ? resp.status() : 0;\\n      await wait(4000);\\n\\n      // Consent wall (EU/UK) hides everything behind it. Reject is both the\\n      // privacy-preserving choice and enough to dismiss the wall.\\n      const consented = await page.evaluate(() => {\\n        const els = Array.prototype.slice.call(document.querySelectorAll('button, [role=\\\"button\\\"]'));\\n        const clickIf = (test) => {\\n          for (const el of els) {\\n            const t = ((el.innerText || '') + ' ' + (el.getAttribute('aria-label') || '')).trim().toLowerCase();\\n            if (test(t) && el.offsetParent !== null) { el.click(); return true; }\\n          }\\n          return false;\\n        };\\n        return clickIf((t) => t.indexOf('reject all') !== -1) ||\\n               clickIf((t) => t.indexOf('accept all') !== -1 || t.indexOf('i agree') !== -1);\\n      });\\n      if (consented) { out.notes.push('dismissed consent wall'); await wait(3000); }\\n\\n      const blocked = await page.evaluate(() =>\\n        /unusual traffic|not a robot|detected unusual/i.test(document.body.innerText || ''));\\n      if (blocked) {\\n        out.perQuery.push({ query, status, found: 0, note: 'blocked by Google' });\\n        out.notes.push('blocked on \\\"' + query + '\\\"');\\n        continue;\\n      }\\n\\n      // Results live in a scrollable side panel, so scrolling the window does nothing.\\n      out.step = 'scroll:' + query;\\n      const countCards = () => page.evaluate(() =>\\n        new Set(Array.prototype.slice.call(document.querySelectorAll('a[href*=\\\"/maps/place/\\\"]'))\\n          .map((a) => a.getAttribute('aria-label') || '')).size);\\n\\n      let stagnant = 0;\\n      let last = 0;\\n      for (let i = 0; i < 40 && stagnant < 4; i++) {\\n        await page.evaluate(() => {\\n          const feed = document.querySelector('div[role=\\\"feed\\\"]');\\n          if (feed) feed.scrollTop = feed.scrollHeight;\\n          else window.scrollTo(0, document.body.scrollHeight);\\n        });\\n        await wait(1600);\\n        const n = await countCards();\\n        if (n >= maxPer) break;\\n        stagnant = n === last ? stagnant + 1 : 0;\\n        last = n;\\n      }\\n\\n      out.step = 'extract:' + query;\\n      const rows = await page.evaluate(() => {\\n        // A card is the smallest ancestor of a place link that still contains only that\\n        // one place link. Walking further up swallows neighbouring results, which made\\n        // every business report the first result's website.\\n        const cardOf = (a) => {\\n          let el = a;\\n          for (let d = 0; d < 8 && el.parentElement; d++) {\\n            if (el.parentElement.querySelectorAll('a[href*=\\\"/maps/place/\\\"]').length > 1) return el;\\n            el = el.parentElement;\\n          }\\n          return el;\\n        };\\n\\n        const results = [];\\n        const seenName = {};\\n\\n        Array.prototype.slice.call(document.querySelectorAll('a[href*=\\\"/maps/place/\\\"]')).forEach((a) => {\\n          const name = (a.getAttribute('aria-label') || '').trim();\\n          if (!name || seenName[name]) return;\\n          seenName[name] = 1;\\n\\n          const card = cardOf(a);\\n          const text = card.innerText || '';\\n          const lines = text.split('\\\\n').map((s) => s.trim()).filter(Boolean);\\n\\n          const labels = Array.prototype.slice.call(card.querySelectorAll('[aria-label]'))\\n            .map((b) => b.getAttribute('aria-label') || '');\\n\\n          let rating = null;\\n          for (const l of labels) {\\n            const m = l.match(/^([0-9.]+)\\\\s+stars?$/i);\\n            if (m) { rating = Number(m[1]); break; }\\n          }\\n\\n          const hasSiteLabel = labels.some((l) => /^Visit .+ website$/i.test(l));\\n          const sponsored = labels.some((l) => /^Sponsored$/i.test(l));\\n\\n          // Whether the card rendered its action row at all. This is the difference\\n          // between \\\"this business has no website\\\" and \\\"this layout is not telling me\\\".\\n          // US results routinely render name + stars + accessibility and nothing else,\\n          // for businesses that certainly do have websites.\\n          const hasActionRow = labels.some((l) => /^(Get directions|Visit .+ website|Call )/i.test(l));\\n\\n          // Outbound anchor that is not one of Google's own domains.\\n          const site = Array.prototype.slice.call(card.querySelectorAll('a[href]')).find((l) => {\\n            const h = l.getAttribute('href') || '';\\n            return /^https?:\\\\/\\\\//.test(h) && !/(^|\\\\.)google\\\\.[a-z.]+\\\\//i.test(h);\\n          });\\n\\n          // Ad cards carry no website button and no outbound link - the domain is printed\\n          // at the end of the ad copy instead:\\n          //   \\\"Ad · Same-Day Appointment · Visit Site · therootcanalguy.com\\\"\\n          // Missing this counted every advertiser as having no website, which is exactly\\n          // backwards: paying for Google Ads all but guarantees they have one.\\n          let adDomain = '';\\n          if (sponsored) {\\n            const adLabel = labels.find((l) => /(^|\\\\s)Ad\\\\s+·/.test(l) || /·\\\\s*Visit Site\\\\s*·/i.test(l)) || '';\\n            const parts = adLabel.split('·').map((x) => x.trim());\\n            for (let k = parts.length - 1; k >= 0; k--) {\\n              if (/^[a-z0-9][a-z0-9-]*(\\\\.[a-z0-9-]+)+$/i.test(parts[k])) { adDomain = parts[k]; break; }\\n            }\\n          }\\n\\n          // \\\"Interior designer ·  · 59-U New\\\" - category first, address last.\\n          const metaLine = lines.find((l) =>\\n            l.indexOf('·') !== -1 && !/^(Open|Closed|Opens|Closes)/i.test(l)) || '';\\n          const parts = metaLine.split('·').map((s) => s.trim()).filter(Boolean);\\n\\n          const phoneM = text.match(/(\\\\+?\\\\d[\\\\d\\\\s()-]{7,}\\\\d)/);\\n\\n          const hasWebsite = Boolean(site || hasSiteLabel || adDomain);\\n\\n          // Three states, not two. \\\"unknown\\\" is the honest answer when the card showed no\\n          // action row: it is not evidence of a missing website, so it must be resolved on\\n          // the place page rather than guessed at here.\\n          const websiteSignal = hasWebsite ? 'has' : (hasActionRow ? 'none' : 'unknown');\\n\\n          results.push({\\n            name: name.slice(0, 120),\\n            mapsUrl: (a.getAttribute('href') || '').split('?')[0],\\n            website: site ? site.getAttribute('href') : (adDomain ? 'http://' + adDomain : ''),\\n            hasWebsite: hasWebsite,\\n            websiteSignal: websiteSignal,\\n            rating: rating,\\n            sponsored: sponsored,\\n            category: parts.length ? parts[0] : '',\\n            address: parts.length > 1 ? parts[parts.length - 1] : '',\\n            phone: phoneM ? phoneM[1].trim() : '',\\n          });\\n        });\\n        return results;\\n      });\\n\\n      let added = 0;\\n      for (const r of rows) {\\n        const key = r.mapsUrl || r.name;\\n        if (seen[key]) continue;\\n        seen[key] = 1;\\n        r.query = query;\\n        out.businesses.push(r);\\n        added++;\\n      }\\n      out.perQuery.push({ query, status, found: rows.length, added });\\n      await wait(pacing);\\n    }\\n\\n    out.ok = true;\\n    out.step = 'done';\\n  } catch (e) {\\n    out.notes.push('error at ' + out.step + ': ' + String(e && e.message ? e.message : e));\\n  }\\n\\n  return { data: out, type: 'application/json' };\\n}\\n\";\n\nconst rawBase = String(s.browserlessUrl);\nconst base = rawBase.charAt(rawBase.length - 1) === '/' ? rawBase.slice(0, -1) : rawBase;\n// Puppeteer aborts a single call at 180s; raise it so a deep scroll cannot hit the ceiling.\nconst endpoint = base + '/function?token=' + encodeURIComponent(s.browserlessToken) +\n  '&launch=' + encodeURIComponent(JSON.stringify({ protocolTimeout: 600000 }));\n\nconsole.log('searching Maps (' + queries.length + ' searches): ' +\n  queries.map(function (q) { return q.query; }).join(' | '));\n// Each search is a separate browser session of roughly 20s plus the place pages it\n// generates, so the combination count is what actually decides how long a run takes.\nif (queries.length > 6) {\n  console.log('that is ' + niches.length + ' niche(s) x ' + cities.length +\n    ' cities - expect roughly ' + Math.round(queries.length * 20 / 60) + ' min of searching alone');\n}\n\nreturn queries.map(function (q) {\n  return {\n    json: {\n      city: q.city,\n      cityLabel: cityLabel,\n      query: q.query,\n      endpoint: endpoint,\n      payload: {\n        code: code,\n        context: {\n          queries: [q.query],\n          maxPerQuery: Number(s.maxPerQuery) || 60,\n          waitMs: Number(s.waitMs) || 2000,\n          lang: String(s.lang || 'en'),\n        },\n      },\n    },\n  };\n});"
+      },
+      "id": "5766a2d9-3bd0-4f53-8eee-eb1ab1b711ca",
+      "name": "Build Search Job",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        190,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.endpoint }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 240000
+        }
+      },
+      "id": "df5cf303-c436-4eb6-8650-3aa87e0259df",
+      "name": "Browserless - Search Maps",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        420,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge every query response and keep only businesses with NO website in the list view.\n// That is the cheap filter: businesses that already show a website never cost a place\n// page visit.\nconst s = $('Settings - Edit These').first().json;\n\n// Which city each search covered. With several cities in play the business itself has to\n// carry its city, or every lead in the CSV is labelled with the first one.\nconst cityOfQuery = {};\nfor (const job of $('Build Search Job').all()) cityOfQuery[job.json.query] = job.json.city;\n\nconst all = [];\nconst notes = [];\nconst seen = {};\nlet anyOk = false;\n\nfor (const item of $input.all()) {\n  const j = item.json || {};\n  if (j.error) { notes.push('browserless: ' + String(j.error).slice(0, 160)); continue; }\n  const body = j.data || {};\n  if (body.ok) anyOk = true;\n  for (const n of (body.notes || [])) notes.push(n);\n  for (const b of (body.businesses || [])) {\n    const key = b.mapsUrl || b.name;\n    // A chain can appear in two cities' results. Keep the first, so it is pitched once.\n    if (!key || seen[key]) continue;\n    seen[key] = 1;\n    b.city = cityOfQuery[b.query] || '';\n    all.push(b);\n  }\n}\n\nif (!anyOk && !all.length) {\n  throw new Error('Every Maps search failed. ' + (notes.length ? notes.join(' | ') : 'No detail returned.'));\n}\nif (!all.length) {\n  throw new Error('No businesses found. Check the niche and city spelling, or widen the niche. ' +\n    (notes.length ? 'Notes: ' + notes.join(' | ') : ''));\n}\n\n// A business often has more than one Maps listing: a claimed one carrying the website and\n// an older or satellite one carrying nothing. The empty listing looks exactly like a lead.\n// Found live: \"Aenzay Interiors & Architects\" (1 review, no site) is the same company as\n// \"AenZay\" (aenzay.com) three rows above it.\n//\n// Both listings are in this same scrape, so the check is free. Names are reduced to their\n// distinctive words - the trade and place words that every competitor shares are exactly\n// the ones that must not cause a match.\n// Which words are actually distinctive has to come from the results themselves. A\n// hand-written trade-word list only ever fits the niche it was written for: tuned on\n// interior design, it read \"dental\", \"family\" and \"smiles\" as brand names and threw away\n// 14 unrelated Phoenix practices as duplicates of each other.\n//\n// A word that shows up across many businesses in the same search is by definition not a\n// brand, whatever the trade is.\nconst CORPORATE = ['ltd','llc','inc','pvt','private','limited','company','group','the','and'];\n\n// Split on \"not a letter or digit\", with no backslash escape anywhere. A \\s here is one\n// backslash short by the time this string has been through the generator's template\n// literal, leaving /s+/ - which splits names on the letter S. Not hypothetical: it turned\n// \"aenzay interiors architects\" into [\"aenzay interior\", \"   architect\"].\nfunction wordsOf(name) {\n  return String(name || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);\n}\n\nconst CITY_WORDS = wordsOf(s.city);\nconst NICHE_WORDS = wordsOf(s.niche);\n\n// How many different businesses use each word.\nconst freq = {};\nfor (const b of all) {\n  const uniq = {};\n  for (const w of wordsOf(b.name)) uniq[w] = 1;\n  for (const w of Object.keys(uniq)) freq[w] = (freq[w] || 0) + 1;\n}\nconst commonAt = Math.max(3, Math.ceil(all.length * 0.08));\n\nfunction keyWords(name) {\n  return wordsOf(name).filter(function (w) {\n    // Down to 2 characters on purpose. Requiring 4 discarded the very tokens that tell\n    // two firms apart - the \"WAO\" in WAO Designworks, the \"SR\" in SR DesignWorks - and\n    // left the shared trade word looking like a complete match. Frequency, not length,\n    // is what identifies a word as generic.\n    return w.length >= 2 &&\n      CITY_WORDS.indexOf(w) === -1 &&\n      NICHE_WORDS.indexOf(w) === -1 &&\n      CORPORATE.indexOf(w) === -1 &&\n      (freq[w] || 0) < commonAt;\n  });\n}\n\nconst withSite = all.filter(function (b) { return b.hasWebsite; });\nconst siteKeys = withSite.map(function (b) { return { name: b.name, words: keyWords(b.name) }; });\n\nconst dupes = [];\nconst candidates = all.filter(function (b) {\n  if (b.hasWebsite) return false;\n\n  const words = keyWords(b.name);\n  // No distinctive word at all means nothing to match on; keep it rather than guess.\n  if (!words.length) return true;\n\n  for (var i = 0; i < siteKeys.length; i++) {\n    const other = siteKeys[i];\n    if (!other.words.length) continue;\n\n    const thisShorter = words.length <= other.words.length;\n    const shortW = thisShorter ? words : other.words;\n    const longW = thisShorter ? other.words : words;\n    const shortName = thisShorter ? b.name : other.name;\n\n    // Every distinctive word of the shorter name must appear in the longer one.\n    const covered = shortW.every(function (w) { return longW.indexOf(w) !== -1; });\n    if (!covered) continue;\n\n    // ...and the shorter name has to be mostly that brand, not mostly trade words with\n    // one rare word in it. \"AenZay\" is 1/1 distinctive; \"Downtown Phoenix Dental\" is 1/3,\n    // and matching on \"downtown\" alone is how unrelated practices got merged.\n    const total = wordsOf(shortName).length || 1;\n    if (shortW.length / total < 0.5) continue;\n\n    dupes.push(b.name + ' ~ ' + other.name);\n    return false;\n  }\n  return true;\n});\n\n// How much the list view actually told us. In UK and Asian results the cards carry a\n// website button and this stage does most of the filtering. In US and Irish results the\n// cards carry no action row at all, so almost everything arrives as 'unknown' and the\n// place pages do the work instead.\nconst known = all.filter(function (b) { return b.websiteSignal === 'none'; }).length;\nconst unknown = all.filter(function (b) { return b.websiteSignal !== 'none' && b.websiteSignal !== 'has'; }).length;\n\nconsole.log('found ' + all.length + ' businesses: ' + withSite.length + ' clearly have a website, ' +\n  known + ' clearly do not, ' + unknown + ' the list would not say');\nif (dupes.length) console.log('skipped ' + dupes.length + ' duplicate listing(s) of a business that HAS a site: ' + dupes.join('; '));\n\nif (unknown > known * 2 && unknown > 5) {\n  console.log('NOTE: these result cards carry no website button - normal for US and Irish ' +\n    'searches. Nothing is lost, but the answer comes from the place pages, so raise ' +\n    'maxPlacesToCheck if you want more than ' + (Number(s.maxPlacesToCheck) || 40) + ' of them checked.');\n}\nif (notes.length) console.log('notes: ' + notes.join(' | '));\n\nif (!candidates.length) {\n  throw new Error('None of the ' + all.length + ' businesses found is a lead: ' +\n    withSite.length + ' already have a website' +\n    (dupes.length ? ' and ' + dupes.length + ' more are duplicate listings of those' : '') +\n    '. Try another niche or city.');\n}\n\n// Take from each city in turn rather than straight off the top of the merged list.\n// Without this the first city eats the whole budget and adding a second city changes\n// nothing - a 2-city run capped at 8 returned 8 Lahore leads and 0 from Karachi.\nconst byCity = {};\nconst cityOrder = [];\nfor (const b of candidates) {\n  const c = b.city || '';\n  if (!byCity[c]) { byCity[c] = []; cityOrder.push(c); }\n  byCity[c].push(b);\n}\n\nconst cap = Number(s.maxPlacesToCheck) || 40;\nconst picked = [];\nfor (let round = 0; picked.length < cap; round++) {\n  let addedThisRound = false;\n  for (const c of cityOrder) {\n    if (picked.length >= cap) break;\n    if (byCity[c][round]) { picked.push(byCity[c][round]); addedThisRound = true; }\n  }\n  if (!addedThisRound) break;\n}\n\nconsole.log('checking ' + picked.length + ' place pages, about ' +\n  Math.max(1, Math.round(picked.length * 5 / 60)) + ' min');\n\nif (cityOrder.length > 1) {\n  console.log('checking ' + picked.length + ' places, spread across ' + cityOrder.length + ' cities: ' +\n    cityOrder.map(function (c) {\n      return (c || 'unknown') + ' ' + picked.filter(function (b) { return (b.city || '') === c; }).length;\n    }).join(', '));\n}\n\nreturn picked.map(function (b) { return { json: b }; });"
+      },
+      "id": "9d5310a1-1f74-4cda-84f1-bdac09b607e6",
+      "name": "Filter No-Website",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 8,
+        "options": {
+          "reset": false
+        }
+      },
+      "id": "70cafee7-fc1c-492a-8270-45263b10ca5d",
+      "name": "Loop Places",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        860,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One Browserless call per batch of places, each opened in the same browser session.\nconst s = $('Settings - Edit These').first().json;\n\nconst places = $input.all().map(function (i) {\n  return { mapsUrl: i.json.mapsUrl, name: i.json.name };\n});\n\nconst code = \"/**\\n * Stage 2 - open each candidate's Google Maps place page and read the real detail.\\n *\\n * Only businesses that showed NO website in the list are sent here, so the cost is paid\\n * on leads rather than on all results: ~7.6s per place, roughly 2 minutes for a typical\\n * 14-lead run instead of ~9 minutes for all 68 businesses.\\n *\\n * Three things this adds that the list view cannot give:\\n *   - review count      list cards do not render it at all\\n *   - full address      cards truncate to a fragment (\\\"59-U New\\\")\\n *   - a SECOND website check, independent of the list, which is what catches a business\\n *     whose listing is simply incomplete\\n *\\n * context: { places: [{ mapsUrl, name }], waitMs, lang }\\n * returns: { ok, results[], notes[] }\\n */\\nexport default async function ({ page, context }) {\\n  const out = { ok: false, step: 'start', results: [], notes: [] };\\n  const wait = (ms) => new Promise((r) => setTimeout(r, ms));\\n  const pacing = Number(context.waitMs || 1200);\\n  const lang = String(context.lang || 'en');\\n  const places = context.places || [];\\n\\n  try {\\n    await page.setUserAgent(\\n      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36'\\n    );\\n    await page.setViewport({ width: 1400, height: 900 });\\n\\n    for (const p of places) {\\n      const rec = {\\n        mapsUrl: p.mapsUrl || '',\\n        name: p.name || '',\\n        title: '',\\n        rating: null,\\n        reviewCount: 0,\\n        website: '',\\n        hasWebsite: false,\\n        phone: '',\\n        address: '',\\n        category: '',\\n        error: '',\\n      };\\n\\n      if (!rec.mapsUrl) { rec.error = 'missing place url'; out.results.push(rec); continue; }\\n\\n      try {\\n        out.step = 'goto:' + rec.name;\\n        // Waiting for the info panel beats waiting for the network to go quiet: Maps\\n        // keeps chattering long after the panel is rendered. Measured on Phoenix place\\n        // pages: 4.7s vs 6.7s per place, with identical review counts and website reads.\\n        await page.goto(rec.mapsUrl + '?hl=' + encodeURIComponent(lang), { waitUntil: 'domcontentloaded', timeout: 45000 });\\n        await page.waitForSelector('h1, a[data-item-id=\\\"authority\\\"]', { timeout: 20000 }).catch(function () {});\\n        await wait(700);\\n\\n        const info = await page.evaluate(() => {\\n          const labels = Array.prototype.slice.call(document.querySelectorAll('[aria-label]'))\\n            .map((b) => b.getAttribute('aria-label') || '');\\n          const text = document.body.innerText || '';\\n\\n          let rating = null;\\n          for (const l of labels) {\\n            const m = l.match(/^([0-9.]+)\\\\s+stars?$/i);\\n            if (m) { rating = Number(m[1]); break; }\\n          }\\n\\n          let reviews = 0;\\n          for (const l of labels) {\\n            const m = l.match(/^(\\\\d[\\\\d,]*)\\\\s+reviews?$/i);\\n            if (m) { reviews = Number(m[1].replace(/,/g, '')); break; }\\n          }\\n          if (!reviews) {\\n            // Fallback: the header renders as \\\"4.6 (32)\\\".\\n            const m = text.match(/[0-9.]+\\\\s*\\\\n?\\\\s*\\\\((\\\\d[\\\\d,]*)\\\\)/);\\n            if (m) reviews = Number(m[1].replace(/,/g, ''));\\n          }\\n\\n          // The website button is a distinct element; its absence is the signal.\\n          const siteEl = document.querySelector('a[data-item-id=\\\"authority\\\"]');\\n          const siteLabel = labels.find((l) => /^Website:/i.test(l)) || '';\\n\\n          const pick = (re) => (labels.find((l) => re.test(l)) || '').replace(re, '').trim();\\n\\n          return {\\n            title: (document.querySelector('h1') || {}).innerText || '',\\n            rating: rating,\\n            reviews: reviews,\\n            website: siteEl ? (siteEl.getAttribute('href') || '') : '',\\n            hasWebsite: Boolean(siteEl || siteLabel),\\n            phone: pick(/^Phone:\\\\s*/i),\\n            address: pick(/^Address:\\\\s*/i),\\n            // The category sits next to the rating block as a plain button.\\n            category: (Array.prototype.slice.call(document.querySelectorAll('button[jsaction*=\\\"category\\\"]'))\\n              .map((b) => (b.innerText || '').trim()).filter(Boolean)[0]) || '',\\n          };\\n        });\\n\\n        rec.title = String(info.title || '').trim();\\n        rec.rating = info.rating;\\n        rec.reviewCount = info.reviews;\\n        rec.website = info.website;\\n        rec.hasWebsite = info.hasWebsite;\\n        rec.phone = String(info.phone || '').trim();\\n        rec.address = String(info.address || '').trim();\\n        rec.category = String(info.category || '').trim();\\n      } catch (e) {\\n        rec.error = String(e && e.message ? e.message : e).slice(0, 160);\\n      }\\n\\n      out.results.push(rec);\\n      await wait(pacing);\\n    }\\n\\n    out.ok = true;\\n    out.step = 'done';\\n  } catch (e) {\\n    out.notes.push('error at ' + out.step + ': ' + String(e && e.message ? e.message : e));\\n  }\\n\\n  return { data: out, type: 'application/json' };\\n}\\n\";\n\nconst rawBase = String(s.browserlessUrl);\nconst base = rawBase.charAt(rawBase.length - 1) === '/' ? rawBase.slice(0, -1) : rawBase;\nconst endpoint = base + '/function?token=' + encodeURIComponent(s.browserlessToken) +\n  '&launch=' + encodeURIComponent(JSON.stringify({ protocolTimeout: 600000 }));\n\nreturn [{\n  json: {\n    endpoint: endpoint,\n    payload: { code: code, context: { places: places, waitMs: Number(s.placeWaitMs) || 1200, lang: String(s.lang || 'en') } },\n  },\n}];"
+      },
+      "id": "a2b3893e-0fe8-42e7-8674-230891d0d9ed",
+      "name": "Build Detail Job",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.endpoint }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 240000
+        }
+      },
+      "id": "204f6284-b6ac-4485-88a2-a1156b9e1ca6",
+      "name": "Browserless - Place Details",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Re-attach the list-view row to the detail read, keyed on the place URL.\nconst resp = $input.first().json || {};\nconst results = (resp.data || {}).results || [];\n\nconst byUrl = {};\nfor (const item of $('Filter No-Website').all()) byUrl[item.json.mapsUrl] = item.json;\n\nreturn results.map(function (r) {\n  const base = byUrl[r.mapsUrl] || {};\n  return {\n    json: {\n      name: (r.title || r.name || base.name || '').trim(),\n      mapsUrl: r.mapsUrl,\n      query: base.query || '',\n      city: base.city || '',\n      sponsored: Boolean(base.sponsored),\n      rating: r.rating === null || r.rating === undefined ? base.rating : r.rating,\n      reviewCount: Number(r.reviewCount) || 0,\n      category: r.category || base.category || '',\n      address: r.address || base.address || '',\n      phone: r.phone || base.phone || '',\n      websiteRaw: r.website || '',\n      hasWebsite: Boolean(r.hasWebsite),\n      detailError: r.error || '',\n    },\n  };\n});"
+      },
+      "id": "5b64e23f-840b-48b1-8a71-97c235d07a8b",
+      "name": "Parse Place Details",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const PLACEHOLDER_HOSTS = [\"facebook.com\",\"fb.me\",\"fb.com\",\"m.me\",\"messenger.com\",\"instagram.com\",\"api.whatsapp.com\",\"wa.me\",\"whatsapp.com\",\"t.me\",\"telegram.me\",\"tiktok.com\",\"youtube.com\",\"twitter.com\",\"x.com\",\"linkedin.com\",\"snapchat.com\",\"pinterest.com\",\"linktr.ee\",\"bio.link\",\"beacons.ai\",\"taplink.cc\",\"linkin.bio\",\"lnk.bio\",\"carrd.co\",\"milkshake.app\",\"solo.to\",\"campsite.bio\",\"business.site\",\"sites.google.com\",\"google.com\",\"goo.gl\",\"maps.app.goo.gl\",\"wixsite.com\",\"weebly.com\",\"blogspot.com\",\"wordpress.com\",\"godaddysites.com\",\"myshopify.com\",\"yelp.com\",\"tripadvisor.com\",\"justdial.com\",\"sulekha.com\",\"urbancompany.com\",\"practo.com\",\"zomato.com\",\"swiggy.com\",\"dineout.co.in\",\"eazydiner.com\",\"ubereats.com\",\"doordash.com\",\"deliveroo.co.uk\",\"just-eat.co.uk\",\"thuisbezorgd.nl\",\"lieferando.de\",\"opentable.com\",\"booksy.com\",\"fresha.com\",\"treatwell.co.uk\",\"checkatrade.com\",\"bark.com\",\"mybuilder.com\",\"ratedpeople.com\",\"trustatrader.com\",\"yell.com\",\"thomsonlocal.com\",\"freeindex.co.uk\",\"gumtree.com\",\"nextdoor.com\",\"thumbtack.com\",\"angi.com\",\"trustpilot.com\",\"houzz.com\",\"etsy.com\",\"amazon.com\",\"amazon.in\",\"flipkart.com\",\"airbnb.com\",\"eventbrite.com\",\"meetup.com\",\"forms.gle\",\"docs.google.com\",\"typeform.com\",\"jotform.com\",\"calendly.com\",\"wa.link\",\"chat.whatsapp.com\",\"squareup.com\",\"square.site\",\"setmore.com\",\"schedulicity.com\",\"vagaro.com\",\"mindbodyonline.com\",\"acuityscheduling.com\",\"simplybook.me\",\"appointy.com\",\"picktime.com\",\"square.online\",\"bit.ly\",\"tinyurl.com\",\"rebrand.ly\",\"cutt.ly\",\"shorturl.at\",\"rb.gy\",\"l.facebook.com\",\"lm.facebook.com\"];\nconst PARKED_MARKERS = [\"sedoparking.com\",\"parkingcrew.net\",\"afternic.com\",\"dan.com\",\"hugedomains.com\",\"domainmarket.com\",\"this domain is for sale\",\"buy this domain\",\"future home of something quite cool\",\"default web site page\",\"index of /\",\"coming soon\",\"under construction\",\"site not published\",\"account suspended\",\"bandwidth limit exceeded\"];\n\n// Parsed by hand rather than with new URL(): the n8n Code node sandbox does not expose\n// URL as a global, so the constructor throws and every host silently comes back empty.\nfunction hostOf(url) {\n  if (!url) return '';\n  var s = String(url).trim();\n  var m = s.match(/^[a-zA-Z][a-zA-Z0-9+.\\-]*:\\/\\/([^\\/?#]+)/);\n  var host = m ? m[1] : s.split(/[\\/?#]/)[0];\n  host = host.replace(/^[^@]*@/, '').replace(/:\\d+$/, '');\n  return host.toLowerCase().replace(/^www\\./, '');\n}\n\nfunction isPlaceholderHost(host) {\n  if (!host) return false;\n  for (var i = 0; i < PLACEHOLDER_HOSTS.length; i++) {\n    var p = PLACEHOLDER_HOSTS[i];\n    if (host === p || host.endsWith('.' + p)) return true;\n  }\n  return false;\n}\n\n// A placeholder host only means \"they have no site of their own\" when the URL points at a\n// PAGE on that host - a profile, a shop, a link page. The bare root means the opposite:\n// they own the domain, so they ARE the platform.\n//\n// Found live: MyBuilder advertising https://www.mybuilder.com/ was tagged placeholder_only\n// and shipped as a lead. mybuilder.com belongs on the directory list - a plumber whose only\n// presence is a MyBuilder profile is a real lead - but MyBuilder itself is not.\nfunction pathOf(url) {\n  if (!url) return '';\n  var s = String(url).trim();\n  var afterScheme = s.indexOf('://') === -1 ? s : s.slice(s.indexOf('://') + 3);\n  var cut = afterScheme.length;\n  for (var i = 0; i < afterScheme.length; i++) {\n    var c = afterScheme.charAt(i);\n    if (c === '/' || c === '?' || c === '#') { cut = i; break; }\n  }\n  return afterScheme.slice(cut);\n}\n\nfunction isPlaceholderUrl(url) {\n  if (!isPlaceholderHost(hostOf(url))) return false;\n  var path = pathOf(url);\n  // \"\", \"/\", \"/?utm=x\" and \"/#top\" are all the front door, not a profile.\n  var firstSeg = path.charAt(0) === '/' ? path.slice(1) : path;\n  var stop = firstSeg.length;\n  for (var i = 0; i < firstSeg.length; i++) {\n    var c = firstSeg.charAt(i);\n    if (c === '/' || c === '?' || c === '#') { stop = i; break; }\n  }\n  return firstSeg.slice(0, stop).length > 0;\n}\n\n// Facebook and Maps both hand back URLs a business typed years ago, and those are often\n// http://. Plenty of sites now 404 or refuse on http while serving perfectly on https.\n//\n// Found live: Miller Homes listed http://www.millerhomes.co.uk/ - a genuine 404 - while\n// https://www.millerhomes.co.uk/ returns a 282KB site. A national housebuilder was being\n// shipped as a dead_site lead.\n//\n// The check runs against the https form; the CSV keeps the URL as listed. If a site truly\n// serves http only, https fails as ECONNREFUSED, which the classifier already treats as\n// inconclusive - so the worst case is a missed lead, never an invented one.\nfunction httpsForm(url) {\n  var u = String(url || '').trim();\n  if (u.length >= 7 && u.slice(0, 7).toLowerCase() === 'http://') return 'https://' + u.slice(7);\n  return u;\n}\n\n\n// The place page carries its own website button, independent of the list view. A\n// business that shows one here had an incomplete listing, not a missing website - drop\n// it rather than pitch someone who already has a site.\nconst s = $('Settings - Edit These').first().json;\nconst minReviews = Number(s.minReviews) || 0;\n\nlet confirmed = 0;\nlet hadSite = 0;\nlet thin = 0;\n\nconst rows = $input.all().filter(function (item) {\n  const j = item.json;\n\n  if (j.detailError) return true;            // unreadable - handled below as unverified\n\n  if (j.hasWebsite) { hadSite++; return false; }\n\n  // Quality floor. Reviews are the closest Maps equivalent to proven demand.\n  if (minReviews > 0 && Number(j.reviewCount) < minReviews) { thin++; return false; }\n\n  confirmed++;\n  return true;\n});\n\nconsole.log('confirmed no website: ' + confirmed +\n  ' | dropped (place page shows a website after all): ' + hadSite +\n  (thin ? ' | dropped under ' + minReviews + ' reviews: ' + thin : ''));\n\nif (!rows.length) {\n  console.log('Nothing left. Lower minReviews, or try another niche/city.');\n}\n\nreturn rows.map(function (item) {\n  const j = item.json;\n\n  // A business can list a website that is itself a placeholder (Facebook, Linktree) or\n  // simply dead. Those still count as leads, tagged so the pitch can differ.\n  const host = hostOf(j.websiteRaw);\n  let leadReason = 'no_website';\n  let siteCheck = 'no_site_listed';\n  let needsLivenessCheck = false;\n\n  if (j.detailError) {\n    leadReason = 'unverified';\n    siteCheck = 'place_page_not_readable';\n  } else if (j.websiteRaw && isPlaceholderUrl(j.websiteRaw)) {\n    // A PROFILE on a directory or social host - facebook.com/them, checkatrade.com/them.\n    // The bare root of one of those hosts means they own it, so it is their real site.\n    leadReason = 'placeholder_only';\n    siteCheck = 'placeholder:' + host;\n  } else if (j.websiteRaw) {\n    needsLivenessCheck = true;\n  }\n\n  return { json: Object.assign({}, j, {\n    // With several cities searched, the settings field is a list - the business carries\n    // the one it was actually found in.\n    city: j.city || String(s.city || '').split(',')[0].trim(),\n    websiteHost: host,\n    // What the liveness check actually requests. The CSV keeps websiteRaw as listed.\n    checkUrl: httpsForm(j.websiteRaw),\n    leadReason: leadReason,\n    siteCheck: siteCheck,\n    needsLivenessCheck: needsLivenessCheck,\n  }) };\n});"
+      },
+      "id": "9b353d82-9f6b-43b0-8771-0dcd0d57ed41",
+      "name": "Confirm + Qualify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.needsLivenessCheck }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "167d0d10-4343-4636-8882-54259f4fbf81",
+      "name": "Needs Liveness Check?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1300,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.checkUrl || $json.websiteRaw }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true
+            }
+          },
+          "timeout": 25000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 5
+            }
+          },
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "id": "06055a33-6337-4c87-84dc-24cc241275f1",
+      "name": "Check Site Alive",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1520,
+        -180
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fold the HTTP response back onto the lead so the classifier sees one object.\nconst leads = $('Needs Liveness Check?').all();\nreturn $input.all().map(function (item, i) {\n  const r = item.json || {};\n  const base = leads[i] ? leads[i].json : {};\n  return { json: Object.assign({}, base, {\n    __statusCode: r.statusCode || 0,\n    __finalUrl: (r.headers && (r.headers.location || r.headers['content-location'])) || base.websiteRaw || '',\n    __body: typeof r.body === 'string' ? r.body.slice(0, 6000) : (typeof r.data === 'string' ? r.data.slice(0, 6000) : ''),\n    __error: r.error ? String(r.error.message || r.error) : '',\n  }) };\n});"
+      },
+      "id": "23ebc8ad-17e6-41dc-867f-83e50f416356",
+      "name": "Shape Site Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1740,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const PLACEHOLDER_HOSTS = [\"facebook.com\",\"fb.me\",\"fb.com\",\"m.me\",\"messenger.com\",\"instagram.com\",\"api.whatsapp.com\",\"wa.me\",\"whatsapp.com\",\"t.me\",\"telegram.me\",\"tiktok.com\",\"youtube.com\",\"twitter.com\",\"x.com\",\"linkedin.com\",\"snapchat.com\",\"pinterest.com\",\"linktr.ee\",\"bio.link\",\"beacons.ai\",\"taplink.cc\",\"linkin.bio\",\"lnk.bio\",\"carrd.co\",\"milkshake.app\",\"solo.to\",\"campsite.bio\",\"business.site\",\"sites.google.com\",\"google.com\",\"goo.gl\",\"maps.app.goo.gl\",\"wixsite.com\",\"weebly.com\",\"blogspot.com\",\"wordpress.com\",\"godaddysites.com\",\"myshopify.com\",\"yelp.com\",\"tripadvisor.com\",\"justdial.com\",\"sulekha.com\",\"urbancompany.com\",\"practo.com\",\"zomato.com\",\"swiggy.com\",\"dineout.co.in\",\"eazydiner.com\",\"ubereats.com\",\"doordash.com\",\"deliveroo.co.uk\",\"just-eat.co.uk\",\"thuisbezorgd.nl\",\"lieferando.de\",\"opentable.com\",\"booksy.com\",\"fresha.com\",\"treatwell.co.uk\",\"checkatrade.com\",\"bark.com\",\"mybuilder.com\",\"ratedpeople.com\",\"trustatrader.com\",\"yell.com\",\"thomsonlocal.com\",\"freeindex.co.uk\",\"gumtree.com\",\"nextdoor.com\",\"thumbtack.com\",\"angi.com\",\"trustpilot.com\",\"houzz.com\",\"etsy.com\",\"amazon.com\",\"amazon.in\",\"flipkart.com\",\"airbnb.com\",\"eventbrite.com\",\"meetup.com\",\"forms.gle\",\"docs.google.com\",\"typeform.com\",\"jotform.com\",\"calendly.com\",\"wa.link\",\"chat.whatsapp.com\",\"squareup.com\",\"square.site\",\"setmore.com\",\"schedulicity.com\",\"vagaro.com\",\"mindbodyonline.com\",\"acuityscheduling.com\",\"simplybook.me\",\"appointy.com\",\"picktime.com\",\"square.online\",\"bit.ly\",\"tinyurl.com\",\"rebrand.ly\",\"cutt.ly\",\"shorturl.at\",\"rb.gy\",\"l.facebook.com\",\"lm.facebook.com\"];\nconst PARKED_MARKERS = [\"sedoparking.com\",\"parkingcrew.net\",\"afternic.com\",\"dan.com\",\"hugedomains.com\",\"domainmarket.com\",\"this domain is for sale\",\"buy this domain\",\"future home of something quite cool\",\"default web site page\",\"index of /\",\"coming soon\",\"under construction\",\"site not published\",\"account suspended\",\"bandwidth limit exceeded\"];\n\n// Parsed by hand rather than with new URL(): the n8n Code node sandbox does not expose\n// URL as a global, so the constructor throws and every host silently comes back empty.\nfunction hostOf(url) {\n  if (!url) return '';\n  var s = String(url).trim();\n  var m = s.match(/^[a-zA-Z][a-zA-Z0-9+.\\-]*:\\/\\/([^\\/?#]+)/);\n  var host = m ? m[1] : s.split(/[\\/?#]/)[0];\n  host = host.replace(/^[^@]*@/, '').replace(/:\\d+$/, '');\n  return host.toLowerCase().replace(/^www\\./, '');\n}\n\nfunction isPlaceholderHost(host) {\n  if (!host) return false;\n  for (var i = 0; i < PLACEHOLDER_HOSTS.length; i++) {\n    var p = PLACEHOLDER_HOSTS[i];\n    if (host === p || host.endsWith('.' + p)) return true;\n  }\n  return false;\n}\n\n// A placeholder host only means \"they have no site of their own\" when the URL points at a\n// PAGE on that host - a profile, a shop, a link page. The bare root means the opposite:\n// they own the domain, so they ARE the platform.\n//\n// Found live: MyBuilder advertising https://www.mybuilder.com/ was tagged placeholder_only\n// and shipped as a lead. mybuilder.com belongs on the directory list - a plumber whose only\n// presence is a MyBuilder profile is a real lead - but MyBuilder itself is not.\nfunction pathOf(url) {\n  if (!url) return '';\n  var s = String(url).trim();\n  var afterScheme = s.indexOf('://') === -1 ? s : s.slice(s.indexOf('://') + 3);\n  var cut = afterScheme.length;\n  for (var i = 0; i < afterScheme.length; i++) {\n    var c = afterScheme.charAt(i);\n    if (c === '/' || c === '?' || c === '#') { cut = i; break; }\n  }\n  return afterScheme.slice(cut);\n}\n\nfunction isPlaceholderUrl(url) {\n  if (!isPlaceholderHost(hostOf(url))) return false;\n  var path = pathOf(url);\n  // \"\", \"/\", \"/?utm=x\" and \"/#top\" are all the front door, not a profile.\n  var firstSeg = path.charAt(0) === '/' ? path.slice(1) : path;\n  var stop = firstSeg.length;\n  for (var i = 0; i < firstSeg.length; i++) {\n    var c = firstSeg.charAt(i);\n    if (c === '/' || c === '?' || c === '#') { stop = i; break; }\n  }\n  return firstSeg.slice(0, stop).length > 0;\n}\n\n// Facebook and Maps both hand back URLs a business typed years ago, and those are often\n// http://. Plenty of sites now 404 or refuse on http while serving perfectly on https.\n//\n// Found live: Miller Homes listed http://www.millerhomes.co.uk/ - a genuine 404 - while\n// https://www.millerhomes.co.uk/ returns a 282KB site. A national housebuilder was being\n// shipped as a dead_site lead.\n//\n// The check runs against the https form; the CSV keeps the URL as listed. If a site truly\n// serves http only, https fails as ECONNREFUSED, which the classifier already treats as\n// inconclusive - so the worst case is a missed lead, never an invented one.\nfunction httpsForm(url) {\n  var u = String(url || '').trim();\n  if (u.length >= 7 && u.slice(0, 7).toLowerCase() === 'http://') return 'https://' + u.slice(7);\n  return u;\n}\n\n\n// Deliberately conservative. A request that gets no response is not evidence of a dead\n// site: plenty of live sites answer a plain server request with 403/409/503 because of\n// bot protection. Only unreachable hosts and definitively-gone pages count as dead.\nreturn $input.all().map(function (item) {\n  const j = item.json;\n  const status = Number(j.__statusCode);\n  const finalUrl = String(j.__finalUrl || '');\n  const bodyText = String(j.__body || '');\n  const errText = String(j.__error || '');\n  const low = (finalUrl + ' ' + bodyText.slice(0, 4000)).toLowerCase();\n\n  const DEAD_ERRORS = /ENOTFOUND|ERR_NAME_NOT_RESOLVED/i;\n  const TRANSIENT = /EAI_AGAIN|ETIMEDOUT|ECONNABORTED|ECONNRESET|EPIPE|timeout of|socket hang up|network|EHOSTUNREACH|ENETUNREACH|ECONNREFUSED/i;\n  const GONE = [404, 410];\n  const BLOCKED = [401, 403, 405, 406, 409, 418, 429, 500, 502, 503, 504];\n\n  let dead = false;\n  let why = '';\n\n  if (!status) {\n    if (DEAD_ERRORS.test(errText)) { dead = true; why = 'dns_not_found'; }\n    else if (TRANSIENT.test(errText)) { why = 'inconclusive_transient'; }\n    else { why = 'inconclusive_no_response'; }\n  }\n  else if (GONE.indexOf(status) !== -1) { dead = true; why = 'http_' + status; }\n  else if (BLOCKED.indexOf(status) !== -1) { why = 'inconclusive_' + status; }\n  else if (status >= 400) { dead = true; why = 'http_' + status; }\n  else if (bodyText && bodyText.length < 200) { dead = true; why = 'empty_body'; }\n  else {\n    for (var i = 0; i < PARKED_MARKERS.length; i++) {\n      if (low.indexOf(PARKED_MARKERS[i]) !== -1) { dead = true; why = 'parked:' + PARKED_MARKERS[i]; break; }\n    }\n  }\n  if (!dead) {\n    const fh = hostOf(finalUrl);\n    if (fh && isPlaceholderHost(fh)) { dead = true; why = 'redirects_to:' + fh; }\n  }\n\n  const out = Object.assign({}, j, { siteCheck: why || ('ok_' + status) });\n  delete out.__statusCode; delete out.__finalUrl; delete out.__body; delete out.__error;\n\n  out.leadReason = dead ? 'dead_site' : 'disqualified_has_site';\n  return { json: out };\n});"
+      },
+      "id": "4c584d98-e2cc-4991-85ef-da56d555c2ed",
+      "name": "Classify Site Health",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1960,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "numberInputs": 2
+      },
+      "id": "0fa047e4-e4a1-423d-883c-3171008f1cfa",
+      "name": "Merge Lead Streams",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2180,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rank by how established the business is, since Maps has no ad-spend signal.\n//\n// Reviews carry the most weight: they are the closest thing Maps offers to proven\n// demand, and unlike a follower count they cannot be bought cheaply in bulk. Rating\n// only matters once there are enough reviews for it to mean anything.\nconst HIGH_TICKET = ['dental','dentist','orthodont','derma','skin','clinic','hospital','aesthetic',\n  'cosmetic','surgeon','interior','architect','real estate','property','realtor','law','legal',\n  'attorney','solicitor','jewel','furniture','automotive','car dealer','fitness','gym','spa','salon',\n  'veterinar','wedding','bridal','photographer','construction','builder','landscap','roofing'];\n\nconst rows = $input.all()\n  .map(function (i) { return i.json; })\n  .filter(function (j) { return j.leadReason && j.leadReason !== 'disqualified_has_site' && j.leadReason !== 'unverified'; });\n\nconst scored = rows.map(function (j) {\n  const cat = String(j.category || '').toLowerCase();\n  const reviews = Number(j.reviewCount) || 0;\n  const rating = Number(j.rating) || 0;\n\n  // Established-ness, the dominant term.\n  const reviewScore =\n    reviews >= 200 ? 30 :\n    reviews >= 100 ? 26 :\n    reviews >= 50 ? 22 :\n    reviews >= 20 ? 17 :\n    reviews >= 5 ? 10 :\n    reviews >= 1 ? 4 : 0;\n\n  // A rating means nothing on 2 reviews, so it only counts once there are enough.\n  const ratingScore = reviews >= 5 ? (rating >= 4.7 ? 8 : rating >= 4.2 ? 5 : rating >= 3.5 ? 2 : 0) : 0;\n\n  // Paying for Google Ads is the same proven-budget signal the Meta version relies on.\n  const sponsored = j.sponsored ? 12 : 0;\n  const reachable = j.phone ? 8 : 0;\n  const highTicket = HIGH_TICKET.some(function (k) { return cat.indexOf(k) !== -1; }) ? 8 : 0;\n  const intent = j.leadReason === 'dead_site' ? 10 : j.leadReason === 'placeholder_only' ? 10 : 6;\n\n  const score = reviewScore + ratingScore + sponsored + reachable + highTicket + intent;\n\n  return Object.assign({}, j, {\n    score: score,\n    isHighTicket: highTicket > 0,\n    isReachable: reachable > 0,\n  });\n});\n\nreturn scored.map(function (j) { return { json: j }; });"
+      },
+      "id": "7a568b56-9b33-4d88-887a-689a5d6ea3fd",
+      "name": "Score + Rank",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $('Settings - Edit These').first().json.ledgerFile }}",
+        "options": {}
+      },
+      "id": "a27b5b46-d199-4fa9-8552-120998c0111d",
+      "name": "Read Ledger",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        2400,
+        140
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "binaryPropertyName": "data",
+        "options": {}
+      },
+      "id": "32cf7c9e-e475-4fbe-8ac3-4b1532c7b672",
+      "name": "Ledger From JSON",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        2400,
+        280
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Compare against the ledger of everything produced before. Extract From File nests the\n// records under a \"data\" key, and on the very first run the file does not exist at all,\n// so unwrap defensively and treat anything without a mapsUrl as absent.\nconst s = $('Settings - Edit These').first().json;\nconst onlyNew = s.onlyNewLeads === true || String(s.onlyNewLeads).toLowerCase() === 'true';\n\nconst known = {};\nfunction absorb(rec, depth) {\n  if (!rec || (depth || 0) > 3) return;\n  if (Array.isArray(rec)) { rec.forEach(function (x) { absorb(x, (depth || 0) + 1); }); return; }\n  if (rec.mapsUrl) { known[rec.mapsUrl] = rec; return; }\n  if (rec.data) absorb(rec.data, (depth || 0) + 1);\n}\nfor (const item of $input.all()) absorb(item.json, 0);\n\nconst today = new Date().toISOString().slice(0, 10);\nconst leads = $('Score + Rank').all().map(function (i) { return i.json; });\n\nlet newCount = 0;\nlet seenCount = 0;\nconst out = [];\n\nfor (const j of leads) {\n  const prev = known[j.mapsUrl];\n  const isNew = !prev;\n  if (isNew) newCount++; else seenCount++;\n  if (onlyNew && !isNew) continue;\n  out.push({ json: Object.assign({}, j, {\n    isNew: isNew,\n    firstSeenOn: prev && prev.firstSeen ? prev.firstSeen : today,\n    timesSeen: prev ? (Number(prev.timesSeen) || 1) + 1 : 1,\n  }) });\n}\n\nconsole.log('ledger holds ' + Object.keys(known).length + ' businesses | this run: ' +\n  newCount + ' new, ' + seenCount + ' already seen' + (onlyNew ? ' (filtered out)' : ' (kept)'));\nif (!out.length) console.log('Nothing new. Change niche or city, or set onlyNewLeads=false.');\n\nreturn out;"
+      },
+      "id": "3c710419-3a6e-4725-8001-2e9ce81a1a63",
+      "name": "Tag New vs Seen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "sortFieldsUi": {
+          "sortField": [
+            {
+              "fieldName": "score",
+              "order": "descending"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3fa58dc4-98b0-477b-8647-97ff0ff939c5",
+      "name": "Sort by Score",
+      "type": "n8n-nodes-base.sort",
+      "typeVersion": 1,
+      "position": [
+        2620,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Maps leads are almost always phone-first: Google lists a number far more often than\n// an email, and local trades answer their own phone.\nconst DIAL = {\"GB\":\"44\",\"IE\":\"353\",\"US\":\"1\",\"CA\":\"1\",\"AU\":\"61\",\"NZ\":\"64\",\"DE\":\"49\",\"AT\":\"43\",\"CH\":\"41\",\"FR\":\"33\",\"BE\":\"32\",\"NL\":\"31\",\"ES\":\"34\",\"IT\":\"39\",\"PT\":\"351\",\"PL\":\"48\",\"SE\":\"46\",\"NO\":\"47\",\"DK\":\"45\",\"FI\":\"358\",\"GR\":\"30\",\"CZ\":\"420\",\"HU\":\"36\",\"RO\":\"40\",\"IN\":\"91\",\"PK\":\"92\",\"BD\":\"880\",\"LK\":\"94\",\"NP\":\"977\",\"AE\":\"971\",\"SA\":\"966\",\"QA\":\"974\",\"KW\":\"965\",\"OM\":\"968\",\"JO\":\"962\",\"IL\":\"972\",\"TR\":\"90\",\"EG\":\"20\",\"MA\":\"212\",\"NG\":\"234\",\"GH\":\"233\",\"KE\":\"254\",\"ZA\":\"27\",\"SG\":\"65\",\"MY\":\"60\",\"TH\":\"66\",\"VN\":\"84\",\"ID\":\"62\",\"PH\":\"63\",\"HK\":\"852\",\"TW\":\"886\",\"KR\":\"82\",\"JP\":\"81\",\"CN\":\"86\",\"BR\":\"55\",\"MX\":\"52\",\"AR\":\"54\",\"CL\":\"56\"};\nconst NATIONAL_LEN = { GB:10, IE:9, US:10, CA:10, AU:9, NZ:9, DE:11, AT:10, CH:9, FR:9, BE:9,\n  NL:9, ES:9, IT:10, PT:9, PL:9, SE:9, NO:8, DK:8, FI:9, GR:10, CZ:9, HU:9, RO:9, IN:10, PK:10,\n  BD:10, LK:9, NP:10, AE:9, SA:9, QA:8, KW:8, OM:8, JO:9, IL:9, TR:10, EG:10, MA:9, NG:10, GH:9,\n  KE:9, ZA:9, SG:8, MY:9, TH:9, VN:9, ID:10, PH:10, HK:8, TW:9, KR:10, JP:10, CN:11, BR:11,\n  MX:10, AR:10, CL:9 };\n\nconst s = $('Settings - Edit These').first().json;\nconst cc = String(s.countryCode || '').trim().toUpperCase();\n\nfunction digitsOnly(v) { return String(v || '').replace(/[^\\d]/g, ''); }\n\n// wa.me needs an international number. \"Starts with the country code\" is not enough:\n// a 10-digit Indian mobile can begin with 91 and still be national.\nfunction toInternational(digits, country) {\n  const dial = DIAL[country];\n  if (!digits) return '';\n  if (!dial) return '';\n  const nat = NATIONAL_LEN[country] || 10;\n  const d = digits.replace(/^0+/, '');\n  if (d.length === nat) return dial + d;\n  if (d.indexOf(dial) === 0 && d.length === dial.length + nat) return d;\n  if (d.indexOf(dial) === 0 && d.length > nat) return d;\n  return dial + d;\n}\n\n// WhatsApp needs a mobile. Western businesses list landlines far more often than the\n// markets this was first built against, and wa.me on a landline opens a chat that will\n// never be read - worse than no link, because it looks like a channel.\n//\n// Only countries where the national number says so outright are classified. The US and\n// Canada share one numbering plan for mobile and fixed lines, so there is nothing to read.\nconst MOBILE_PREFIX = {\n  GB: /^7/, IE: /^8[35-9]/, DE: /^1[5-7]/, FR: /^[67]/, ES: /^[67]/, IT: /^3/,\n  NL: /^6/, BE: /^4[5-9]/, PT: /^9/, AT: /^6/, CH: /^7[5-9]/, SE: /^7/, NO: /^[49]/,\n  DK: /^[2-5]/, FI: /^4|^50/, AU: /^4/, NZ: /^2/, PL: /^[4-8]/, GR: /^69/,\n};\n\nfunction phoneTypeOf(digits, country) {\n  const re = MOBILE_PREFIX[country];\n  if (!re) return 'unknown';\n  const dial = DIAL[country];\n  let nat = digits.replace(/^0+/, '');\n  // Strip the country code if the number was already written internationally.\n  if (dial && nat.indexOf(dial) === 0 && nat.length > (NATIONAL_LEN[country] || 10)) {\n    nat = nat.slice(dial.length).replace(/^0+/, '');\n  }\n  return re.test(nat) ? 'mobile' : 'landline';\n}\n\nreturn $input.all().map(function (item) {\n  const j = item.json;\n  const phone = digitsOnly(j.phone);\n  const waNumber = phone ? toInternational(phone, cc) : '';\n  const phoneType = phone ? phoneTypeOf(phone, cc) : '';\n\n  // No dial code means no usable link; a wa.me without one silently opens nothing.\n  // A known landline is the same problem wearing a better disguise.\n  const waLink = (waNumber && phoneType !== 'landline') ? 'https://wa.me/' + waNumber : '';\n\n  const outreachStatus = phone ? 'READY_CALL' : 'NO_CHANNEL';\n\n  return { json: Object.assign({}, j, {\n    waNumber: waNumber,\n    waLink: waLink,\n    phoneType: phoneType,\n    outreachStatus: outreachStatus,\n    lastContacted: '',\n  }) };\n});"
+      },
+      "id": "1cc1cbd4-dae5-4b40-8c1f-11e6ce9599cb",
+      "name": "Build Outreach",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2840,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flatten to the sheet columns, in a stable order.\n\n// Excel and Google Sheets treat a cell whose FIRST character is = + - or @ as a formula.\n// So \"+44 7718 538734\" opens as #ERROR! rather than a phone number. Quoting the CSV does\n// not help: this is the spreadsheet parsing the value, not the CSV being ambiguous.\n//\n// Phone numbers drop the leading + outright - the digits are what you dial, and waLink\n// still carries the full international number. Any other text that starts with one of\n// those characters gets a leading space, which stops the parse and is invisible in the\n// cell.\n//\n// Written with no regex on purpose. These patterns pass through two template literals on\n// their way into the node, and a s or + arrives one backslash short - which is how\n// /^[0-9]/ once became /^[d]/ and matched nothing at all.\nfunction noLeadingPlus(v) {\n  let t = String(v === null || v === undefined ? '' : v).trim();\n  while (t.charAt(0) === '+') t = t.slice(1).trim();\n  return t;\n}\n\nfunction sheetSafe(v) {\n  const t = String(v === null || v === undefined ? '' : v);\n  const c = t.charAt(0);\n  return (c === '=' || c === '+' || c === '-' || c === '@') ? ' ' + t : t;\n}\n\nreturn $input.all().map(function (item) {\n  const j = item.json;\n  return { json: {\n    score: j.score,\n    name: sheetSafe(j.name),\n    leadReason: sheetSafe(j.leadReason),\n    category: sheetSafe(j.category),\n    city: sheetSafe(j.city),\n    address: sheetSafe(j.address),\n    rating: j.rating === null || j.rating === undefined ? '' : j.rating,\n    reviewCount: j.reviewCount || 0,\n    sponsored: j.sponsored ? 'YES' : '',\n    phone: noLeadingPlus(j.phone),\n    phoneType: sheetSafe(j.phoneType),\n    waLink: sheetSafe(j.waLink),\n    websiteFound: sheetSafe(j.websiteRaw),\n    siteCheck: sheetSafe(j.siteCheck),\n    mapsUrl: sheetSafe(j.mapsUrl),\n    query: sheetSafe(j.query),\n    outreachStatus: sheetSafe(j.outreachStatus),\n    lastContacted: '',\n  } };\n});"
+      },
+      "id": "a0187485-f88d-44a5-8cc0-c44c575c1f05",
+      "name": "Shape Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3060,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "csv",
+        "options": {
+          "fileName": "leads.csv",
+          "headerRow": true
+        }
+      },
+      "id": "53511489-d794-4c66-8442-67451b8740af",
+      "name": "To CSV",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        3280,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('Settings - Edit These').first().json.outputFolder }}/maps-leads-{{ $('Build Search Job').first().json.cityLabel }}-{{ $now.format('yyyy-LL-dd-HHmm') }}.csv",
+        "dataPropertyName": "data",
+        "options": {}
+      },
+      "id": "6c3d779c-e7ee-498a-8cf8-4365a6efc22e",
+      "name": "Save Leads CSV",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        3500,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rewrite the ledger: everything it knew, plus every business qualified in this run -\n// including ones filtered out as already seen, so their lastSeen stays current.\nconst today = new Date().toISOString().slice(0, 10);\n\nconst ledger = {};\nfunction absorb(rec, depth) {\n  if (!rec || (depth || 0) > 3) return;\n  if (Array.isArray(rec)) { rec.forEach(function (x) { absorb(x, (depth || 0) + 1); }); return; }\n  if (rec.mapsUrl) { ledger[rec.mapsUrl] = rec; return; }\n  if (rec.data) absorb(rec.data, (depth || 0) + 1);\n}\nfor (const item of $('Ledger From JSON').all()) absorb(item.json, 0);\n\nfor (const item of $('Score + Rank').all()) {\n  const j = item.json;\n  if (!j.mapsUrl) continue;\n  const prev = ledger[j.mapsUrl];\n  ledger[j.mapsUrl] = {\n    mapsUrl: j.mapsUrl,\n    name: j.name || (prev ? prev.name : ''),\n    city: j.city || (prev ? prev.city : ''),\n    leadReason: j.leadReason || (prev ? prev.leadReason : ''),\n    firstSeen: prev && prev.firstSeen ? prev.firstSeen : today,\n    lastSeen: today,\n    timesSeen: prev ? (Number(prev.timesSeen) || 1) + 1 : 1,\n  };\n}\n\nconst rows = Object.keys(ledger).map(function (k) { return { json: ledger[k] }; });\nconsole.log('ledger written: ' + rows.length + ' businesses total');\nreturn rows;"
+      },
+      "id": "28223386-718c-4bfb-885a-e370cf4b891d",
+      "name": "Build Ledger",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3500,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toJson",
+        "options": {
+          "fileName": "seen-places.json",
+          "format": true
+        }
+      },
+      "id": "a8679834-96e8-4ec9-841c-d6e33d66e879",
+      "name": "Ledger To File",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        3500,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('Settings - Edit These').first().json.ledgerFile }}",
+        "dataPropertyName": "data",
+        "options": {}
+      },
+      "id": "ef70e957-c5c1-4a8a-83e0-ca83565116b0",
+      "name": "Save Ledger",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        3500,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "mapsUrl"
+          ],
+          "schema": []
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "a2eb8488-ab76-4153-8058-a1a5c58fa3da",
+      "name": "Append to Google Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3720,
+        140
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "width": 460,
+        "height": 300,
+        "color": 4,
+        "content": "## Start here — 2 things\n\n**1. Browserless must be running.**\n`docker run -p 3004:3000 -e TOKEN=my-token ghcr.io/browserless/chromium`\n\n**2. Set `niche` + `city`** on the Settings node.\nMaps has **no country filter** — the city IS the geography.\nFor a whole country, **list its cities**, comma-separated:\n`Lahore, Karachi, Islamabad`. Niches multiply by cities.\n`countryCode` is only used to build wa.me links.\n\nThen hit **Run Now**. Leads land in `output/` as CSV.\n*Run Weekly* is disabled until you're happy."
+      },
+      "id": "4deaf632-d1f1-459e-8068-263e29c4673f",
+      "name": "Note - Start Here",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -480,
+        -340
+      ]
+    },
+    {
+      "parameters": {
+        "width": 460,
+        "height": 250,
+        "color": 5,
+        "content": "## Two stages, cheap one first\n\n**Stage 1** scrapes the Maps result list. The card shows a\n**Website** button — businesses without one are candidates.\n68 businesses in ~18s; typically ~21% have no site.\n\n**Stage 2** opens ONLY those candidates' place pages\n(~7.6s each) for review count, full address, and a\n**second, independent website check**.\n\nThat second check is the point: it catches a business whose\nlisting was merely incomplete, before you pitch someone who\nalready has a site."
+      },
+      "id": "b58f268d-10b1-481d-8b1f-0d42f9648ede",
+      "name": "Note - How it works",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        620,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "width": 440,
+        "height": 230,
+        "color": 6,
+        "content": "## Why reviews, not followers\n\nMaps has no ad-spend signal, so ranking uses how\n**established** the business is:\n\nreviews (up to 30) · rating (only once 5+ reviews)\nsponsored = paying for Google Ads (12) · has phone (8)\nhigh-ticket category (8) · lead reason (6-10)\n\nA rating means nothing on 2 reviews, so it is ignored\nbelow 5. Review counts are read from the place page —\nthey are **not** in the list view at all."
+      },
+      "id": "287a7c13-339e-4a83-8c91-e1e06273db07",
+      "name": "Note - Ranking",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2360,
+        -340
+      ]
+    }
+  ],
+  "connections": {
+    "Run Now": {
+      "main": [
+        [
+          {
+            "node": "Settings - Edit These",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Weekly": {
+      "main": [
+        [
+          {
+            "node": "Settings - Edit These",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings - Edit These": {
+      "main": [
+        [
+          {
+            "node": "Preflight - Browserless",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preflight - Browserless": {
+      "main": [
+        [
+          {
+            "node": "Build Search Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Search Job": {
+      "main": [
+        [
+          {
+            "node": "Browserless - Search Maps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Browserless - Search Maps": {
+      "main": [
+        [
+          {
+            "node": "Filter No-Website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter No-Website": {
+      "main": [
+        [
+          {
+            "node": "Loop Places",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Places": {
+      "main": [
+        [
+          {
+            "node": "Confirm + Qualify",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Detail Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Detail Job": {
+      "main": [
+        [
+          {
+            "node": "Browserless - Place Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Browserless - Place Details": {
+      "main": [
+        [
+          {
+            "node": "Parse Place Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Place Details": {
+      "main": [
+        [
+          {
+            "node": "Loop Places",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirm + Qualify": {
+      "main": [
+        [
+          {
+            "node": "Needs Liveness Check?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Liveness Check?": {
+      "main": [
+        [
+          {
+            "node": "Check Site Alive",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge Lead Streams",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Check Site Alive": {
+      "main": [
+        [
+          {
+            "node": "Shape Site Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Site Response": {
+      "main": [
+        [
+          {
+            "node": "Classify Site Health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Site Health": {
+      "main": [
+        [
+          {
+            "node": "Merge Lead Streams",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Lead Streams": {
+      "main": [
+        [
+          {
+            "node": "Score + Rank",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score + Rank": {
+      "main": [
+        [
+          {
+            "node": "Read Ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Ledger": {
+      "main": [
+        [
+          {
+            "node": "Ledger From JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ledger From JSON": {
+      "main": [
+        [
+          {
+            "node": "Tag New vs Seen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag New vs Seen": {
+      "main": [
+        [
+          {
+            "node": "Sort by Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sort by Score": {
+      "main": [
+        [
+          {
+            "node": "Build Outreach",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Outreach": {
+      "main": [
+        [
+          {
+            "node": "Shape Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Rows": {
+      "main": [
+        [
+          {
+            "node": "To CSV",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Append to Google Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "To CSV": {
+      "main": [
+        [
+          {
+            "node": "Save Leads CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Leads CSV": {
+      "main": [
+        [
+          {
+            "node": "Build Ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Ledger": {
+      "main": [
+        [
+          {
+            "node": "Ledger To File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ledger To File": {
+      "main": [
+        [
+          {
+            "node": "Save Ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "maps-lead-engine"
+  },
+  "tags": []
+}

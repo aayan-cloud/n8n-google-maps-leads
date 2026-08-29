@@ -1,0 +1,15 @@
+# Real lead data — business names, addresses and personal phone numbers.
+# Never commit this. It is other people's personal data, and it is regenerated
+# on every run anyway.
+output/
+
+# The cross-run ledger, wherever it is pointed
+seen-places.json
+
+# Scratch files from dev/run.js
+dev/_*.json
+
+node_modules/
+*.log
+.DS_Store
+Thumbs.db

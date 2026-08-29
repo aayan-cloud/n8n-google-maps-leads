@@ -1,0 +1,8 @@
+Header row for: Google Maps -> No-Website Leads
+Generated from workflow/maps-lead-engine.json - regenerate with: node dev/sheet-headers.js
+
+Paste the TAB-SEPARATED line below into cell A1 of an empty sheet.
+It spreads across the columns on its own. (Comma-separated would land in one cell.)
+Spelling and order must match exactly - the Google Sheets node maps by header name.
+
+score	name	leadReason	category	city	address	rating	reviewCount	sponsored	phone	phoneType	waLink	websiteFound	siteCheck	mapsUrl	query	outreachStatus	lastContacted
