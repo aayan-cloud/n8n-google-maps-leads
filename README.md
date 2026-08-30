@@ -61,6 +61,17 @@ docker run -d --name browserless -p 3004:3000 -e TOKEN=changeme-local-token ghcr
 
 Then in n8n: **Import from File** → `workflow/maps-lead-engine.json`.
 
+### Optional: send leads to a Google Sheet
+
+The workflow writes CSV either way. If you also want a sheet, import
+[`template/maps-leads-template.csv`](template/maps-leads-template.csv) into a new Google
+Sheet (**File → Import → Upload**), then enable the **Append to Google Sheet** node and
+pick that document.
+
+The header names must match exactly — the node maps by column name, so a renamed or
+misspelled header silently writes a blank column rather than erroring. The template is
+generated from the workflow itself, so it cannot drift.
+
 See [SETUP.md](SETUP.md) for the file-access setting n8n needs before it can write the CSV.
 
 ---
