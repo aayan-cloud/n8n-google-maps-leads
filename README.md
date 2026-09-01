@@ -84,7 +84,7 @@ Everything lives on the **Settings - Edit These** node. Nothing else needs touch
 | --- | --- |
 | `niche` | What you search for. **Comma-separate to sweep several trades**: `dentist, orthodontist, physiotherapist` |
 | `city` | **Maps has no country filter — the city IS the geography.** For a whole country, **list its cities**: `Lahore, Karachi, Islamabad`. A country name is rejected on purpose (see below). |
-| `countryCode` | Only used to turn local phone numbers into working `wa.me` links. `PK`, `GB`, `US`… |
+| `countryCode` | The **2-letter** code for the country you are searching — `GB`, `US`, `PK`, `IE`. Not the country name. It decides both the `wa.me` link and whether a number reads as mobile or landline, so an unrecognised value is rejected rather than silently producing blank links. |
 | `minReviews` | Quality floor, default `5`. See [Why not just set it to 100?](#why-not-just-set-minreviews-to-100) |
 | `maxPerQuery` | How far to scroll the results list. 60 is about what Maps will give you. |
 | `maxPlacesToCheck` | **The runtime dial.** Each place page costs ~8s, so 40 ≈ 5 minutes. Spread evenly across your cities, not spent on the first one. |
@@ -169,7 +169,7 @@ Two things worth knowing before you raise it:
 | `city` | which city's search found it — set per business, not per run |
 | `rating` / `reviewCount` | read from the place page — the list view has no review count at all |
 | `sponsored` | `YES` = paying for Google Ads, i.e. proven budget |
-| `phone` / `phoneType` | `mobile` / `landline` / `unknown`. Written **without a leading `+`** (`44 7718 538734`): Excel and Sheets read a leading `+` as a formula and show `#ERROR!` instead of the number. |
+| `phone` / `phoneType` | `mobile` / `landline` / `unknown` — `unknown` only for countries whose numbering plan does not separate the two, like the US and Canada. Written **without a leading `+`** (`44 7718 538734`): Excel and Sheets read a leading `+` as a formula and show `#ERROR!` instead of the number. |
 | `waLink` | click to open WhatsApp with the number already dialled — **blank for a known landline**, because wa.me on a landline opens a chat nobody will ever read |
 | `siteCheck` | why it counts as a lead, e.g. `no_site_listed`, `dns_not_found`, `placeholder:facebook.com` |
 | `outreachStatus` | `READY_CALL`, or `NO_CHANNEL` when Maps listed no phone |
@@ -256,7 +256,7 @@ Two rules make changes reviewable:
 
 ```bash
 node dev/build-workflow.js   # regenerate the workflow from scripts/ and config/
-node dev/test-all.js         # 234 assertions, no n8n or Browserless needed
+node dev/test-all.js         # 340 assertions, no n8n or Browserless needed
 node dev/e2e.js "dentist" "Leeds, York" GB   # real end-to-end run outside n8n
 ```
 

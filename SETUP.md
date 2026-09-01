@@ -89,7 +89,7 @@ node at a folder already on the list (`C:\n8n_files`). Nothing else changes.
 ## Verifying without n8n
 
 ```bash
-node dev/test-all.js                    # 234 assertions, needs nothing running
+node dev/test-all.js                    # 340 assertions, needs nothing running
 node dev/e2e.js "dentist" "Leeds" GB    # real run, needs Browserless
 ```
 

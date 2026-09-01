@@ -12,7 +12,7 @@ const wf = require(path.resolve(__dirname, '..', 'workflow', 'maps-lead-engine.j
 const buildCode = wf.nodes.find((n) => n.name === 'Build Search Job').parameters.jsCode;
 const filterCode = wf.nodes.find((n) => n.name === 'Filter No-Website').parameters.jsCode;
 
-const SETTINGS = { niche: 'interior designer', city: 'Lahore', maxPerQuery: 60,
+const SETTINGS = { niche: 'interior designer', city: 'Lahore', countryCode: 'PK', maxPerQuery: 60,
   maxPlacesToCheck: 40, browserlessUrl: 'http://localhost:3004',
   browserlessToken: 'changeme-local-token', waitMs: 2000, lang: 'en' };
 
@@ -278,6 +278,21 @@ check('a single city is unaffected',
   filter({ city: 'Lahore', maxPlacesToCheck: 3 }, [resp(
     Array.from({ length: 10 }, (_, i) => biz({ name: 'L' + i, mapsUrl: 'l' + i, query: 'dentist Lahore' }))
   )], jobs).length === 3);
+
+// --- countryCode must be usable ---------------------------------------------------------------
+// An unknown code produced an empty waLink for every lead and said nothing about it. Found
+// live: a Rawalpindi run wrote 20 leads and not one usable link.
+for (const bad of ['', 'Pakistan', 'PAK', 'United Kingdom', 'xx']) {
+  const err = throws(() => buildJob({ countryCode: bad }));
+  check('rejects countryCode ' + JSON.stringify(bad), err !== null && /not as+dialling code|not a dialling/.test(err), err);
+}
+check('  ...and lists the codes it does know',
+  /Known: .*GB.*/.test(throws(() => buildJob({ countryCode: 'PAK' })) || ''));
+check('  ...and explains what would have gone wrong',
+  /waLink would come out blank/.test(throws(() => buildJob({ countryCode: '' })) || ''));
+for (const good of ['PK', 'pk', 'GB', 'US', ' IE ']) {
+  check('accepts ' + JSON.stringify(good), throws(() => buildJob({ countryCode: good })) === null);
+}
 
 // --- failure paths must say what to do ---------------------------------------------------
 const allFailed = throws(() => filter({}, [{ error: 'connect ECONNREFUSED' }]));

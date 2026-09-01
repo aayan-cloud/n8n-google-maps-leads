@@ -150,6 +150,18 @@ for (var ci = 0; ci < cities.length; ci++) {
   }
 }
 
+// A countryCode that is not a known 2-letter code produces an empty waLink for every
+// single lead, silently - the run looks fine and the column is just blank. Found live: a
+// Rawalpindi run wrote 20 leads and not one usable link.
+const DIAL_CODES = ${JSON.stringify(Object.keys(DIAL))};
+const cc = String(s.countryCode || '').trim().toUpperCase();
+if (DIAL_CODES.indexOf(cc) === -1) {
+  throw new Error('countryCode is "' + (s.countryCode || '(empty)') + '", which is not a ' +
+    'dialling code this workflow knows. Every waLink would come out blank and nothing ' +
+    'would say so. Use the 2-letter code for the country you are searching - GB, US, PK, ' +
+    'IE, AU - not the country name. Known: ' + DIAL_CODES.join(' '));
+}
+
 // Every niche in every city. Each combination is its own search.
 const queries = [];
 for (var ni = 0; ni < niches.length; ni++) {
@@ -739,7 +751,19 @@ function toInternational(digits, country) {
 const MOBILE_PREFIX = {
   GB: /^7/, IE: /^8[35-9]/, DE: /^1[5-7]/, FR: /^[67]/, ES: /^[67]/, IT: /^3/,
   NL: /^6/, BE: /^4[5-9]/, PT: /^9/, AT: /^6/, CH: /^7[5-9]/, SE: /^7/, NO: /^[49]/,
-  DK: /^[2-5]/, FI: /^4|^50/, AU: /^4/, NZ: /^2/, PL: /^[4-8]/, GR: /^69/,
+  DK: /^[2-5]/, FI: /^4|^50/, AU: /^4/, NZ: /^2/, PL: /^[4-8]/, GR: /^69/, RO: /^7/,
+  CZ: /^[67]/,
+  // South and Central Asia, Middle East, Africa, Asia-Pacific. Every one of these was
+  // reading as "unknown" before, which is safe but useless - a Rawalpindi run could not
+  // tell a mobile from a landline.
+  PK: /^3/, IN: /^[6-9]/, BD: /^1/, LK: /^7/, NP: /^9/,
+  AE: /^5/, SA: /^5/, QA: /^[3567]/, KW: /^[569]/, OM: /^[79]/, JO: /^7/, IL: /^5/,
+  TR: /^5/, EG: /^1/, MA: /^[67]/, NG: /^[789]/, GH: /^[25]/, KE: /^[17]/, ZA: /^[678]/,
+  SG: /^[89]/, MY: /^1/, TH: /^[689]/, VN: /^[35789]/, ID: /^8/, PH: /^9/,
+  HK: /^[569]/, TW: /^9/, KR: /^1/, CN: /^1/,
+  // Deliberately absent: US, CA, BR, MX, AR, CL, JP. Their numbering plans do not
+  // separate mobile from fixed by prefix in a way worth guessing at, so they stay
+  // "unknown" and keep their link rather than risk dropping a real mobile.
 };
 
 function phoneTypeOf(digits, country) {

@@ -103,6 +103,45 @@ check('an international GB mobile still reads as a mobile',
   withPhone('GB', '+44 7718 538734').phoneType === 'mobile',
   withPhone('GB', '+44 7718 538734').phoneType);
 
+// --- countries that were reading as "unknown" ----------------------------------------------------
+// Every one of these produced no phoneType at all before, so a run could not tell a mobile
+// from a landline. Found live on a Rawalpindi run.
+const MOBILES_2 = [
+  ['PK', '92 335 5247894', 'Pakistan mobile'],
+  ['PK', '0300 1237862', 'Pakistan mobile, local format'],
+  ['IN', '92059 66347', 'India'],
+  ['AE', '050 123 4567', 'UAE'],
+  ['ZA', '082 123 4567', 'South Africa'],
+  ['NG', '0803 123 4567', 'Nigeria'],
+  ['SG', '9123 4567', 'Singapore'],
+  ['TR', '0532 123 4567', 'Turkey'],
+];
+for (const [cc, num, label] of MOBILES_2) {
+  const r = withPhone(cc, num);
+  check(label + ' reads as mobile', r.phoneType === 'mobile', r.phoneType);
+  check('  ...and gets a link', r.waLink !== '');
+}
+
+const LANDLINES_2 = [
+  ['PK', '92 51 4575930', 'Islamabad landline'],
+  ['PK', '042 111 2222', 'Lahore landline'],
+  ['IN', '011 2345 6789', 'Delhi landline'],
+  ['ZA', '021 123 4567', 'Cape Town landline'],
+];
+for (const [cc, num, label] of LANDLINES_2) {
+  const r = withPhone(cc, num);
+  check(label + ' reads as landline', r.phoneType === 'landline', r.phoneType);
+  check('  ...and gets no link, since WhatsApp would never reach it', r.waLink === '');
+}
+
+// Left as "unknown" on purpose: these numbering plans do not separate mobile from fixed
+// by prefix, and guessing would drop real mobiles.
+for (const cc of ['US', 'CA', 'BR', 'JP']) {
+  const r = withPhone(cc, '480 233 4518');
+  check(cc + ' is not guessed at', r.phoneType === 'unknown', r.phoneType);
+  check('  ...and keeps its link', r.waLink !== '');
+}
+
 // --- failure modes -----------------------------------------------------------------------
 const none = run('PK', [{ name: 'X', phone: '' }])[0];
 check('no phone -> NO_CHANNEL', none.outreachStatus === 'NO_CHANNEL', none.outreachStatus);
